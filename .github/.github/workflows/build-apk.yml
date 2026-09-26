@@ -34,18 +34,48 @@ jobs:
         run: gradle wrapper --gradle-version 8.2
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        id: build
+        continue-on-error: true
+        run: |
+          set +e
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+          echo "EXIT_CODE=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Show Error In Summary
+        if: always()
+        run: |
+          echo "## KET QUA BUILD" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f build.log ]; then
+            echo "### 50 dong cuoi cua log:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -50 build.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Dong loi chinh:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -iE "error|fail|what went wrong|caused by" build.log | head -20 >> $GITHUB_STEP_SUMMARY || echo "Khong tim thay dong loi" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Khong co file build.log" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: warn
 
       - name: Upload APK
-        if: success()
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: axiom-turbo-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - name: Show APK Info
-        if: success()
-        run: |
-          echo "=== APK FILES ==="
-          find app/build/outputs/apk -name "*.apk" -exec ls -lh {} \;
+      - name: Fail if build failed
+        if: steps.build.outcome == 'failure'
+        run: exit 1
